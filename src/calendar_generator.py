@@ -1,9 +1,11 @@
-"""
-Calendar Generator - Hungary Detailed Calendar (15-minute resolution)
+"""Calendar Generator - Hungary (15-minute resolution)
 
-Demand forecasting için Macaristan'a özel detaylı takvim özellikleri oluşturur.
-15 dakikalık çözünürlükte, UTC formatında.
-"""
+This script builds detailed calendar features for electricity demand forecasting in Hungary.
+The final output is in UTC with 15-minute steps. We still use local time (Europe/Budapest)
+internally so we can correctly detect holidays, business hours, and DST.
+
+In short: we convert time information into machine-learning friendly features (cyclical,
+binary flags, and one-hot encodings)."""
 
 import pandas as pd
 import numpy as np
@@ -18,34 +20,34 @@ logger = logging.getLogger(__name__)
 
 
 class HungaryCalendarGenerator:
-    """Macaristan için detaylı takvim özellikleri oluşturucu"""
+    """Hungary için detaylı calendar özellikleri generateucu"""
     
     def __init__(self, timezone: str = "Europe/Budapest"):
         self.local_tz = pytz.timezone(timezone)
         self.utc_tz = pytz.UTC
         
-        # Macaristan tatil günleri (holidays kütüphanesi)
+        # Hungary tatil günleri (holidays kütüphanesi)
         self.hungary_holidays = holidays.Hungary(years=range(2015, 2026))
         
-        # İş saatleri (Macaristan local time)
+        # İş saatleri (Hungary local time)
         self.business_hours_start = 8  # 08:00
         self.business_hours_end = 18   # 18:00
     
     def _is_school_holiday(self, date: datetime.date) -> bool:
         """
-        Okul tatili kontrolü (Macaristan)
-        - Yaz tatili: Haziran sonu - Ağustos sonu
-        - Kış tatili: Aralık sonu - Ocak başı (yaklaşık 2 hafta)
+        Okul tatili kontrolü (Hungary)
+        - Summer tatili: Haziran sonu - Ağustos sonu
+        - Winter tatili: Aralık sonu - Ocak başı (yaklaşık 2 hafta)
         - Bahar tatili: Nisan ortası (yaklaşık 1 hafta)
         """
         month = date.month
         day = date.day
         
-        # Yaz tatili: 15 Haziran - 31 Ağustos
+        # Summer tatili: 15 Haziran - 31 Ağustos
         if (month == 6 and day >= 15) or month in [7, 8] or (month == 9 and day <= 5):
             return True
         
-        # Kış tatili: 20 Aralık - 5 Ocak
+        # Winter tatili: 20 Aralık - 5 Ocak
         if (month == 12 and day >= 20) or (month == 1 and day <= 5):
             return True
         
@@ -57,11 +59,11 @@ class HungaryCalendarGenerator:
     
     def generate_calendar(self, start_date: datetime, end_date: datetime) -> pd.DataFrame:
         """
-        Detaylı takvim özellikleri oluştur
+        Detaylı calendar özellikleri generate
         
         Args:
-            start_date: Başlangıç tarihi
-            end_date: Bitiş tarihi
+            start_date: Start tarihi
+            end_date: End tarihi
         
         Returns:
             DataFrame with detailed calendar features (UTC timezone, 15-minute resolution)
@@ -77,12 +79,12 @@ class HungaryCalendarGenerator:
         else:
             end_date_utc = pd.Timestamp(end_date).tz_convert('UTC')
         
-        # Başlangıç: İlk günün başlangıcı (00:00)
+        # Start: İlk günün başlangıcı (00:00)
         start_date_utc = start_date_utc.replace(hour=0, minute=0, second=0, microsecond=0)
-        # Bitiş: Son günün sonu (23:45)
+        # End: Son günün sonu (23:45)
         end_date_utc = end_date_utc.replace(hour=23, minute=45, second=0, microsecond=0)
         
-        # 15 dakikalık zaman ızgarası oluştur (UTC)
+        # 15 dakikalık zaman ızgarası generate (UTC)
         datetime_index = pd.date_range(
             start=start_date_utc,
             end=end_date_utc,
@@ -90,12 +92,12 @@ class HungaryCalendarGenerator:
             tz='UTC'
         )
         
-        logger.info(f"Takvim oluşturuluyor: {len(datetime_index):,} kayıt")
+        logger.info(f"Takvim generateuluyor: {len(datetime_index):,} rows")
         
-        # Calendar DataFrame oluştur
+        # Calendar DataFrame generate
         calendar_df = pd.DataFrame({'datetime': datetime_index})
         
-        # UTC'den Macaristan local time'a çevir
+        # UTC'den Hungary local time'a çevir
         calendar_df['datetime_local'] = calendar_df['datetime'].dt.tz_convert(self.local_tz)
         
         # Temel tarih özellikleri
@@ -107,7 +109,7 @@ class HungaryCalendarGenerator:
         calendar_df['day_name'] = calendar_df['datetime_local'].dt.day_name()
         calendar_df['day_of_year'] = calendar_df['datetime_local'].dt.dayofyear
         
-        # Saat özellikleri (local time)
+        # Hours özellikleri (local time)
         calendar_df['hour_local'] = calendar_df['datetime_local'].dt.hour
         calendar_df['minute'] = calendar_df['datetime_local'].dt.minute
         
@@ -124,7 +126,7 @@ class HungaryCalendarGenerator:
         calendar_df['q_of_h_sin'] = np.sin(2 * np.pi * minute_interval / 4)
         calendar_df['q_of_h_cos'] = np.cos(2 * np.pi * minute_interval / 4)
         
-        # weekday_sin, weekday_cos: Haftalık ritmin sürekliliği (Pazartesi, Pazar'a komşudur)
+        # weekday_sin, weekday_cos: Haftalık ritmin sürekliliği (Monday, Pazar'a komşudur)
         calendar_df['weekday_sin'] = np.sin(2 * np.pi * calendar_df['day_of_week'] / 7)
         calendar_df['weekday_cos'] = np.cos(2 * np.pi * calendar_df['day_of_week'] / 7)
         
@@ -143,14 +145,14 @@ class HungaryCalendarGenerator:
         
         # Binary özellikler
         
-        # is_dst: Yaz Saati Uygulaması aktif mi? (Saat bazında, her kayıt için farklı olabilir)
+        # is_dst: Summer Hoursi Uygulaması aktif mi? (Hours bazında, her rows için farklı olabilir)
         calendar_df['is_dst'] = calendar_df['datetime_local'].apply(
             lambda x: 1 if x.dst() != timedelta(0) else 0
         )
         
-        # Gün bazında hesaplanacak özellikler için yardımcı fonksiyonlar
+        # Gün bazında calculatenacak özellikler için yardımcı fonksiyonlar
         def is_weekend_or_holiday(date_obj):
-            """Tatil veya hafta sonu kontrolü"""
+            """Holiday veya hafta sonu kontrolü"""
             if date_obj in self.hungary_holidays:
                 return 1
             weekday = pd.Timestamp(date_obj).dayofweek
@@ -158,20 +160,20 @@ class HungaryCalendarGenerator:
                 return 1
             return 0
         
-        # Gün bazında tüm özellikleri hesapla (her gün için bir kez)
+        # Gün bazında tüm özellikleri calculate (her gün için bir kez)
         unique_dates = calendar_df['date'].unique()
         day_features = {}
         
         for date_obj in unique_dates:
             weekday = pd.Timestamp(date_obj).dayofweek
             
-            # is_holiday: Macaristan resmi tatili mi?
+            # is_holiday: Hungary resmi tatili mi?
             is_holiday = 1 if date_obj in self.hungary_holidays else 0
             
             # is_weekend: Cumartesi veya Pazar mı?
             is_weekend = 1 if weekday in [5, 6] else 0
             
-            # is_workday: Tatil veya hafta sonu olmayan, normal çalışma günü mü?
+            # is_workday: Holiday veya hafta sonu olmayan, normal çalışma günü mü?
             is_workday = 1 if (is_holiday == 0 and is_weekend == 0) else 0
             
             # is_school_holiday: Okul ve üniversite tatili dönemleri mi?
@@ -181,11 +183,11 @@ class HungaryCalendarGenerator:
             prev_date = date_obj - timedelta(days=1)
             next_date = date_obj + timedelta(days=1)
             
-            # before_holiday_1day: Tatilden önceki son iş günü mü?
+            # before_holiday_1day: Holidayden önceki son iş günü mü?
             next_is_holiday = 1 if next_date in self.hungary_holidays else 0
             before_holiday_1day = 1 if (next_is_holiday == 1 and is_workday == 1) else 0
             
-            # after_holiday_1day: Tatilden sonraki ilk iş günü mü?
+            # after_holiday_1day: Holidayden sonraki ilk iş günü mü?
             prev_is_holiday = 1 if prev_date in self.hungary_holidays else 0
             after_holiday_1day = 1 if (prev_is_holiday == 1 and is_workday == 1) else 0
             
@@ -205,7 +207,7 @@ class HungaryCalendarGenerator:
             # natl_day_peak_20Aug: 20 Ağustos (Aziz Stephen Günü) mü?
             natl_day_peak_20Aug = 1 if (month == 8 and day == 20) else 0
             
-            # Tüm özellikleri dictionary'ye kaydet
+            # All özellikleri dictionary'ye save
             day_features[date_obj] = {
                 'is_holiday': is_holiday,
                 'is_weekend': is_weekend,
@@ -219,7 +221,7 @@ class HungaryCalendarGenerator:
                 'natl_day_peak_20Aug': natl_day_peak_20Aug
             }
         
-        # Gün bazında hesaplanan özellikleri tüm kayıtlara uygula
+        # Gün bazında calculatenan özellikleri tüm rowslara uygula
         for feature_name in ['is_holiday', 'is_weekend', 'is_workday', 'is_school_holiday',
                             'before_holiday_1day', 'after_holiday_1day', 'is_bridge_day',
                             'is_payday', 'christmas_period', 'natl_day_peak_20Aug']:
@@ -262,20 +264,20 @@ class HungaryCalendarGenerator:
         
         # ============================================
         # III. BEKLENTİ VE ÖZEL GÜN ÖZELLİKLERİ
-        # (Yukarıda gün bazında hesaplandı, burada sadece saat bazlı özellikler var)
+        # (Yukarıda gün bazında calculatendı, burada sadece saat bazlı özellikler var)
         # ============================================
         
         # ============================================
         # ONE-HOT ENCODING ÖZELLİKLERİ
         # ============================================
         
-        # day_type_OHE: Günün tipi (Normal Hafta İçi, Pazartesi, Hafta Sonu, Tatil)
+        # day_type_OHE: Günün tipi (Normal Weekday, Monday, Weekend, Holiday)
         def get_day_type(row):
             if row['is_holiday'] == 1:
                 return 'Holiday'
             elif row['is_weekend'] == 1:
                 return 'Weekend'
-            elif row['day_of_week'] == 0:  # Pazartesi
+            elif row['day_of_week'] == 0:  # Monday
                 return 'Monday'
             else:
                 return 'Normal_Weekday'
@@ -287,7 +289,7 @@ class HungaryCalendarGenerator:
         calendar_df = pd.concat([calendar_df, day_type_dummies], axis=1)
         calendar_df.drop('day_type', axis=1, inplace=True)
         
-        # season_flag_OHE: Mevsim (Kış, İlkbahar, Yaz, Sonbahar)
+        # season_flag_OHE: Season (Winter, Spring, Summer, Autumn)
         def get_season(month):
             if month in [12, 1, 2]:
                 return 'Winter'
@@ -329,7 +331,7 @@ class HungaryCalendarGenerator:
         ordered_cols = priority_cols + cyclic_cols + binary_cols + ohe_cols + other_cols
         calendar_df = calendar_df[[col for col in ordered_cols if col in calendar_df.columns]]
         
-        logger.info(f"✅ Takvim oluşturuldu: {len(calendar_df):,} kayıt, {len(calendar_df.columns)} özellik")
+        logger.info(f"✅ Takvim generateuldu: {len(calendar_df):,} rows, {len(calendar_df.columns)} özellik")
         logger.info(f"   - Siklik özellikler: {len(cyclic_cols)}")
         logger.info(f"   - Binary özellikler: {len(binary_cols)}")
         logger.info(f"   - OHE özellikler: {len(ohe_cols)}")
@@ -337,10 +339,10 @@ class HungaryCalendarGenerator:
         return calendar_df
     
     def save_csv(self, df: pd.DataFrame, filepath: str):
-        """CSV'ye kaydet"""
+        """CSV'ye save"""
         Path(filepath).parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(filepath, index=False)
-        logger.info(f"✅ Takvim kaydedildi: {filepath}")
+        logger.info(f"✅ Takvim saved: {filepath}")
 
 
 if __name__ == "__main__":
@@ -349,7 +351,7 @@ if __name__ == "__main__":
     start = datetime(2015, 1, 1)
     end = datetime(2024, 12, 31)
     
-    # Takvim oluştur
+    # Takvim generate
     calendar_df = generator.generate_calendar(start, end)
     
     # Kaydet

@@ -1,8 +1,10 @@
-"""
-ENTSOE API Data Fetcher - Hungary Load Data (15-minute resolution)
+"""ENTSO-E API Data Fetcher - Hungary Load Data (15-minute resolution)
 
-Basit ve hızlı: 2015-2024 arası veriyi çek, CSV'ye kaydet.
-"""
+This script downloads historical electricity load data for Hungary from the ENTSO-E API.
+It fetches data month-by-month, converts it into a clean 15-minute UTC time series,
+fills missing timestamps using linear interpolation, and saves results as CSV.
+
+Main goal: get a continuous, model-ready load dataset for 2015-2024."""
 
 import requests
 import pandas as pd
@@ -21,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 class ENTSOEDataFetcher:
-    """ENTSOE veri çekici - Macaristan için 15 dakikalık load verisi"""
+    """ENTSOE data fetchici - Hungary için 15 dakikalık load datasi"""
     
     def __init__(
         self,
@@ -44,10 +46,10 @@ class ENTSOEDataFetcher:
         self.session.mount('https://', adapter)
     
     def fetch_month(self, year: int, month: int) -> pd.DataFrame:
-        """Bir ayın verisini çek"""
+        """Bir ayın datasini fetch"""
         last_day = monthrange(year, month)[1]
         
-        # periodEnd: Bir sonraki günün başlangıcını kullan (son aralıkların çekilmesi için)
+        # periodEnd: Bir sonraki günün başlangıcını kullan (son aralıkların fetchilmesi için)
         # Örnek: Aralık 2024 için 2025-01-01 00:00 kullanılır
         end_date = datetime(year, month, last_day) + timedelta(days=1)
         
@@ -113,7 +115,7 @@ class ENTSOEDataFetcher:
                                 })
                 
                 if all_data:
-                    logger.info(f"✓ {year}-{month:02d}: {len(all_data)} kayıt")
+                    logger.info(f"✓ {year}-{month:02d}: {len(all_data)} rows")
                 else:
                     logger.warning(f"⚠ {year}-{month:02d}: Veri yok")
             else:
@@ -131,7 +133,7 @@ class ENTSOEDataFetcher:
         return df
     
     def fetch_range(self, start_date: datetime, end_date: datetime, show_progress: bool = True) -> pd.DataFrame:
-        """Tarih aralığını ay ay çek"""
+        """Date rangenı ay ay fetch"""
         # Tarihleri timezone-aware hale getir (local timezone)
         if start_date.tzinfo is None:
             start_date = self.local_tz.localize(start_date)
@@ -145,7 +147,7 @@ class ENTSOEDataFetcher:
         
         all_data = []
         
-        # Ay listesi oluştur
+        # Ay listesi generate
         months = []
         temp = start_date
         while temp <= end_date:
@@ -156,7 +158,7 @@ class ENTSOEDataFetcher:
                 temp = self.local_tz.localize(datetime(temp.year, temp.month + 1, 1))
         
         if show_progress:
-            print(f"\n📅 {len(months)} ay için veri çekiliyor...\n")
+            print(f"\n📅 {len(months)} ay için data fetchiliyor...\n")
         
         for idx, (year, month) in enumerate(months, 1):
             if show_progress:
@@ -167,7 +169,7 @@ class ENTSOEDataFetcher:
             if not month_data.empty:
                 all_data.append(month_data)
                 if show_progress:
-                    print(f"✓ {len(month_data)} kayıt")
+                    print(f"✓ {len(month_data)} rows")
             else:
                 if show_progress:
                     print("⚠ Veri yok")
@@ -185,40 +187,40 @@ class ENTSOEDataFetcher:
         df = df.drop_duplicates(subset=['datetime']).sort_values('datetime').reset_index(drop=True)
         
         if show_progress:
-            print(f"\n✅ Toplam {len(df):,} kayıt çekildi")
-            print(f"   Tarih aralığı: {df['datetime'].min()} - {df['datetime'].max()}\n")
+            print(f"\n✅ Toplam {len(df):,} rows fetchildi")
+            print(f"   Date range: {df['datetime'].min()} - {df['datetime'].max()}\n")
         
         return df
     
     def reindex_and_fill(self, df: pd.DataFrame) -> tuple:
         """
-        Veriyi mükemmel zaman ızgarasına oturt, eksikleri tespit et ve interpolasyon yap.
-        Çekilen verinin gerçek tarih aralığına göre çalışır.
+        Veriyi mükemmel zaman ızgarasına oturt, missingleri tespit et ve interpolation yap.
+        Çekilen datanin gerfetch tarih aralığına göre çalışır.
         
         Args:
             df: Veri DataFrame'i
         
         Returns:
-            (df_filled, df_report) - Doldurulmuş veri ve eksik veri raporu
+            (df_filled, df_report) - Doldurulmuş data ve missing data report
         """
         # Duplicate'leri temizle ve indexle
         df = df.sort_values('datetime').drop_duplicates(subset=['datetime'], keep='last')
         df = df.set_index('datetime')
         
-        # Boş veri kontrolü
+        # Empty data kontrolü
         if df.empty:
-            return df, pd.DataFrame(columns=['Baslangic', 'Bitis', 'Sure_Saat', 'Veri_Noktasi_Sayisi'])
+            return df, pd.DataFrame(columns=['Start', 'End', 'Sure_Hours', 'Num_Points'])
         
-        # Çekilen verinin gerçek tarih aralığını kullan
+        # Çekilen datanin gerfetch tarih aralığını kullan
         min_date = df.index.min()
         max_date = df.index.max()
         
-        # Başlangıç: İlk verinin olduğu günün başlangıcı (00:00)
+        # Start: İlk datanin olduğu günün başlangıcı (00:00)
         start_date = min_date.replace(hour=0, minute=0, second=0, microsecond=0)
-        # Bitiş: Son verinin olduğu günün sonu (23:45)
+        # End: Son datanin olduğu günün sonu (23:45)
         end_date = max_date.replace(hour=23, minute=45, second=0, microsecond=0)
         
-        # Mükemmel zaman ızgarası oluştur
+        # Mükemmel zaman ızgarası generate
         full_idx = pd.date_range(
             start=start_date,
             end=end_date,
@@ -230,7 +232,7 @@ class ENTSOEDataFetcher:
         df_full = df.reindex(full_idx)
         df_full.index.name = 'datetime'
         
-        # Eksik verileri tespit et
+        # Eksik dataleri tespit et
         missing_mask = df_full['load_MW'].isna()
         missing_count = missing_mask.sum()
         
@@ -247,10 +249,10 @@ class ENTSOEDataFetcher:
                 duration_hours = (group.index.size * 15) / 60
                 
                 report_list.append({
-                    'Baslangic': start_gap,
-                    'Bitis': end_gap,
-                    'Sure_Saat': duration_hours,
-                    'Veri_Noktasi_Sayisi': group.index.size
+                    'Start': start_gap,
+                    'End': end_gap,
+                    'Sure_Hours': duration_hours,
+                    'Num_Points': group.index.size
                 })
         
         # Interpolasyon yap
@@ -261,10 +263,10 @@ class ENTSOEDataFetcher:
         return df_full, df_report
     
     def save_csv(self, df: pd.DataFrame, filepath: str):
-        """CSV'ye kaydet"""
+        """CSV'ye save"""
         Path(filepath).parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(filepath, index=True)
-        logger.info(f"✅ Veri kaydedildi: {filepath}")
+        logger.info(f"✅ Veri saved: {filepath}")
 
 
 if __name__ == "__main__":
@@ -273,10 +275,10 @@ if __name__ == "__main__":
     start = datetime(2015, 1, 1)
     end = datetime(2024, 12, 31)
     
-    # Veriyi çek
+    # Veriyi fetch
     df_raw = fetcher.fetch_range(start, end)
     
-    # Reindex ve interpolasyon (çekilen verinin gerçek tarih aralığına göre)
+    # Reindex ve interpolation (fetchilen datanin gerfetch tarih aralığına göre)
     df_filled, df_report = fetcher.reindex_and_fill(df_raw)
     
     # Kaydet
@@ -284,5 +286,5 @@ if __name__ == "__main__":
     
     if not df_report.empty:
         fetcher.save_csv(df_report, "data/raw/interpolation_report.csv")
-        print(f"\n⚠️ {df_report['Veri_Noktasi_Sayisi'].sum()} veri noktası interpolasyon ile dolduruldu")
+        print(f"\n⚠️ {df_report['Num_Points'].sum()} data noktası interpolation ile dolduruldu")
 

@@ -1,9 +1,8 @@
-"""
-Feature Engineering - Lag and Rolling Window Features
+"""Feature Engineering - Lag & Rolling Window Features
 
-Load verisi için lag ve rolling window özellikleri oluşturur.
-Leakage olmadan (sadece geçmiş veriler kullanılır).
-"""
+This script creates lag and rolling statistics (mean/std/min/max) from the load time series.
+Important detail: we avoid data leakage by only using past values (e.g., shift before rolling).
+It also merges the prepared load, weather, and calendar datasets into one final table."""
 
 import pandas as pd
 import numpy as np
@@ -15,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class FeatureEngineer:
-    """Lag ve rolling window özellikleri oluşturucu"""
+    """Lag ve rolling window özellikleri generateucu"""
     
     def __init__(self):
         self.lag_hours = [48, 72, 96, 120, 144, 168]  # 2-7 gün
@@ -23,16 +22,16 @@ class FeatureEngineer:
     
     def create_lag_features(self, df: pd.DataFrame, target_col: str = 'load_MW') -> pd.DataFrame:
         """
-        Lag özellikleri oluştur (geçmiş değerler)
+        Lag özellikleri generate (geçmiş değerler)
         
         Args:
             df: DataFrame (datetime index olmalı, UTC timezone)
-            target_col: Lag oluşturulacak sütun adı
+            target_col: Lag generateulacak sütun adı
         
         Returns:
             Lag özellikleri eklenmiş DataFrame
         """
-        logger.info(f"Lag özellikleri oluşturuluyor: {self.lag_hours} saat")
+        logger.info(f"Lag özellikleri generateuluyor: {self.lag_hours} saat")
         
         # DataFrame'i kopyala
         df_lagged = df.copy()
@@ -50,7 +49,7 @@ class FeatureEngineer:
         # Sıralı olduğundan emin ol
         df_lagged = df_lagged.sort_index()
         
-        # Her lag için özellik oluştur
+        # Her lag için özellik generate
         for lag_hours in self.lag_hours:
             # 15 dakikalık aralıklar için lag sayısı
             lag_periods = lag_hours * 4  # 1 saat = 4 * 15 dakika
@@ -58,7 +57,7 @@ class FeatureEngineer:
             lag_col_name = f'{target_col}_lag_{lag_hours}h'
             df_lagged[lag_col_name] = df_lagged[target_col].shift(lag_periods)
             
-            logger.info(f"  ✓ {lag_col_name} oluşturuldu")
+            logger.info(f"  ✓ {lag_col_name} generateuldu")
         
         # Index'i tekrar sütun yap
         df_lagged = df_lagged.reset_index()
@@ -67,17 +66,17 @@ class FeatureEngineer:
     
     def create_rolling_features(self, df: pd.DataFrame, target_col: str = 'load_MW') -> pd.DataFrame:
         """
-        Rolling window özellikleri oluştur (mean, std, min, max)
-        Leakage olmadan: sadece geçmiş veriler kullanılır
+        Rolling window özellikleri generate (mean, std, min, max)
+        Leakage olmadan: sadece geçmiş dataler kullanılır
         
         Args:
             df: DataFrame (datetime index olmalı, UTC timezone)
-            target_col: Rolling window oluşturulacak sütun adı
+            target_col: Rolling window generateulacak sütun adı
         
         Returns:
             Rolling window özellikleri eklenmiş DataFrame
         """
-        logger.info(f"Rolling window özellikleri oluşturuluyor: {self.window_hours} saat")
+        logger.info(f"Rolling window özellikleri generateuluyor: {self.window_hours} saat")
         
         # DataFrame'i kopyala
         df_rolling = df.copy()
@@ -95,16 +94,16 @@ class FeatureEngineer:
         # Sıralı olduğundan emin ol
         df_rolling = df_rolling.sort_index()
         
-        # Her window için özellik oluştur
+        # Her window için özellik generate
         for window_hours in self.window_hours:
             # 15 dakikalık aralıklar için window size
             window_size = window_hours * 4  # 1 saat = 4 * 15 dakika
             
-            # Rolling window (sadece geçmiş veriler - shift(1) ile leakage önlenir)
-            # shift(1): O anki veriyi dahil etmez, sadece geçmiş verileri kullanır
+            # Rolling window (sadece geçmiş dataler - shift(1) ile leakage önlenir)
+            # shift(1): O anki datayi dahil etmez, sadece geçmiş dataleri kullanır
             rolling = df_rolling[target_col].shift(1).rolling(
                 window=window_size,
-                min_periods=window_size  # En az window_size kadar veri olsun (tam window için)
+                min_periods=window_size  # En az window_size kadar data olsun (tam window için)
             )
             
             # Mean
@@ -119,7 +118,7 @@ class FeatureEngineer:
             # Max
             df_rolling[f'{target_col}_rolling_max_{window_hours}h'] = rolling.max()
             
-            logger.info(f"  ✓ {window_hours}h rolling window özellikleri oluşturuldu (mean, std, min, max)")
+            logger.info(f"  ✓ {window_hours}h rolling window özellikleri generateuldu (mean, std, min, max)")
         
         # Index'i tekrar sütun yap
         df_rolling = df_rolling.reset_index()
@@ -132,57 +131,57 @@ class FeatureEngineer:
                           calendar_path: str,
                           output_path: str = None) -> pd.DataFrame:
         """
-        Tüm datasetleri birleştir (load, weather, calendar)
+        All datasetleri merge (load, weather, calendar)
         
         Args:
-            load_path: Load verisi CSV dosya yolu
-            weather_path: Weather verisi CSV dosya yolu
-            calendar_path: Calendar verisi CSV dosya yolu
-            output_path: Birleştirilmiş veriyi kaydetmek için dosya yolu (opsiyonel)
+            load_path: Load datasi CSV dosya yolu
+            weather_path: Weather datasi CSV dosya yolu
+            calendar_path: Calendar datasi CSV dosya yolu
+            output_path: Birleştirilmiş datayi savemek için dosya yolu (opsiyonel)
         
         Returns:
             Birleştirilmiş DataFrame
         """
-        logger.info("Datasetler birleştiriliyor...")
+        logger.info("Datasetler mergeiliyor...")
         
-        # Load verisini oku
-        logger.info(f"Load verisi okunuyor: {load_path}")
+        # Load datasini oku
+        logger.info(f"Load datasi okunuyor: {load_path}")
         df_load = pd.read_csv(load_path)
         df_load['datetime'] = pd.to_datetime(df_load['datetime'], utc=True)
-        logger.info(f"  ✓ {len(df_load):,} kayıt")
+        logger.info(f"  ✓ {len(df_load):,} rows")
         
-        # Weather verisini oku
-        logger.info(f"Weather verisi okunuyor: {weather_path}")
+        # Weather datasini oku
+        logger.info(f"Weather datasi okunuyor: {weather_path}")
         df_weather = pd.read_csv(weather_path)
         df_weather['datetime'] = pd.to_datetime(df_weather['datetime'], utc=True)
-        logger.info(f"  ✓ {len(df_weather):,} kayıt")
+        logger.info(f"  ✓ {len(df_weather):,} rows")
         
-        # Calendar verisini oku
-        logger.info(f"Calendar verisi okunuyor: {calendar_path}")
+        # Calendar datasini oku
+        logger.info(f"Calendar datasi okunuyor: {calendar_path}")
         df_calendar = pd.read_csv(calendar_path)
         df_calendar['datetime'] = pd.to_datetime(df_calendar['datetime'], utc=True)
-        logger.info(f"  ✓ {len(df_calendar):,} kayıt")
+        logger.info(f"  ✓ {len(df_calendar):,} rows")
         
-        # Load ve Weather birleştir
-        logger.info("Load ve Weather birleştiriliyor...")
+        # Load ve Weather merge
+        logger.info("Load ve Weather mergeiliyor...")
         df_merged = pd.merge(df_load, df_weather, on='datetime', how='inner')
-        logger.info(f"  ✓ {len(df_merged):,} kayıt")
+        logger.info(f"  ✓ {len(df_merged):,} rows")
         
-        # Calendar ile birleştir
-        logger.info("Calendar ile birleştiriliyor...")
+        # Calendar ile merge
+        logger.info("Calendar ile mergeiliyor...")
         df_merged = pd.merge(df_merged, df_calendar, on='datetime', how='inner')
-        logger.info(f"  ✓ {len(df_merged):,} kayıt")
+        logger.info(f"  ✓ {len(df_merged):,} rows")
         
         # Datetime'a göre sırala
         df_merged = df_merged.sort_values('datetime').reset_index(drop=True)
         
-        logger.info(f"✅ Tüm datasetler birleştirildi: {len(df_merged):,} kayıt, {len(df_merged.columns)} sütun")
+        logger.info(f"✅ All datasetler mergeildi: {len(df_merged):,} rows, {len(df_merged.columns)} sütun")
         
-        # Kaydet (eğer path verildiyse)
+        # Kaydet (eğer path dataldiyse)
         if output_path:
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
             df_merged.to_csv(output_path, index=False)
-            logger.info(f"✅ Birleştirilmiş veri kaydedildi: {output_path}")
+            logger.info(f"✅ Birleştirilmiş data saved: {output_path}")
         
         return df_merged
 
@@ -190,24 +189,24 @@ class FeatureEngineer:
 if __name__ == "__main__":
     engineer = FeatureEngineer()
     
-    # Load verisini oku
+    # Load datasini oku
     load_path = "data/raw/hungary_load_data_2015_2024.csv"
     df_load = pd.read_csv(load_path)
     df_load['datetime'] = pd.to_datetime(df_load['datetime'], utc=True)
     
-    # Lag özellikleri oluştur
+    # Lag özellikleri generate
     df_load = engineer.create_lag_features(df_load, target_col='load_MW')
     
-    # Rolling window özellikleri oluştur
+    # Rolling window özellikleri generate
     df_load = engineer.create_rolling_features(df_load, target_col='load_MW')
     
-    # Load verisini kaydet (lag ve rolling özellikleri ile)
+    # Load datasini save (lag ve rolling özellikleri ile)
     output_load_path = "data/processed/hungary_load_with_features_2015_2024.csv"
     Path(output_load_path).parent.mkdir(parents=True, exist_ok=True)
     df_load.to_csv(output_load_path, index=False)
-    logger.info(f"✅ Load verisi kaydedildi: {output_load_path}")
+    logger.info(f"✅ Load datasi saved: {output_load_path}")
     
-    # Tüm datasetleri birleştir
+    # All datasetleri merge
     merged_df = engineer.merge_all_datasets(
         load_path=output_load_path,
         weather_path="data/raw/hungary_weather_2015_2024.csv",

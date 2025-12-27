@@ -1,9 +1,10 @@
-"""
-Weather Data Fetcher - Hungary Temperature Data (15-minute resolution)
+"""Weather Data Fetcher - Hungary Temperature (15-minute resolution)
 
-Macaristan'ın en yoğun nüfuslu 5 şehrindeki sıcaklık verisini çeker,
-nüfusa göre ağırlıklı ortalama hesaplar ve HDD/CDD değerlerini üretir.
-"""
+This script pulls historical hourly temperature data for the 5 most populated cities in Hungary,
+computes a population-weighted average temperature, and then converts it to 15-minute resolution
+using interpolation. It also generates daily HDD/CDD features and expands them to 15-minute steps.
+
+Main goal: create weather-driven features that help explain electricity demand."""
 
 import requests
 import pandas as pd
@@ -21,9 +22,9 @@ logger = logging.getLogger(__name__)
 
 
 class WeatherDataFetcher:
-    """Macaristan şehirleri için hava durumu verisi çekici"""
+    """Hungary şehirleri için hava durumu datasi fetchici"""
     
-    # Macaristan'ın en yoğun nüfuslu 5 şehri ve koordinatları (lat, lon)
+    # Hungary'ın en yoğun populationlu 5 şehri ve koordinatları (lat, lon)
     CITIES = {
         'Budapest': {
             'lat': 47.4979,
@@ -66,7 +67,7 @@ class WeatherDataFetcher:
         self.local_tz = pytz.timezone(timezone)
         self.utc_tz = pytz.UTC
         
-        # Toplam nüfusu hesapla (ağırlıklı ortalama için)
+        # Toplam populationu calculate (weighted ortalama için)
         self.total_population = sum(city['population'] for city in self.CITIES.values())
         
         # Retry mekanizması
@@ -78,18 +79,18 @@ class WeatherDataFetcher:
     
     def fetch_city_temperature(self, city_name: str, start_date: datetime, end_date: datetime) -> pd.DataFrame:
         """
-        Belirli bir şehir için sıcaklık verisini çek (saatlik)
+        Belirli bir şehir için temperature datasini fetch (hourly)
         
         Args:
-            city_name: Şehir adı (CITIES dict'inde olmalı)
-            start_date: Başlangıç tarihi
-            end_date: Bitiş tarihi
+            city_name: City adı (CITIES dict'inde olmalı)
+            start_date: Start tarihi
+            end_date: End tarihi
         
         Returns:
             DataFrame with columns: datetime, temperature_2m (UTC timezone)
         """
         if city_name not in self.CITIES:
-            raise ValueError(f"Şehir bulunamadı: {city_name}. Mevcut şehirler: {list(self.CITIES.keys())}")
+            raise ValueError(f"City not found: {city_name}. Available cities: {list(self.CITIES.keys())}")
         
         city = self.CITIES[city_name]
         
@@ -103,7 +104,7 @@ class WeatherDataFetcher:
         end_date_utc = end_date.astimezone(self.utc_tz)
         
         # API formatı: YYYY-MM-DD
-        # Son günün 23:00'ına kadar veri çekmek için end_date'i bir sonraki gün olarak gönder
+        # Son günün 23:00'ına kadar data fetchmek için end_date'i bir sonraki gün olarak gönder
         # (API inclusive değil, bir sonraki günün başlangıcını kullan)
         start_str = start_date_utc.strftime('%Y-%m-%d')
         end_date_for_api = end_date_utc + timedelta(days=1)
@@ -140,9 +141,9 @@ class WeatherDataFetcher:
                             else:
                                 dt = dt.tz_convert('UTC')
                             
-                            # Sadece istenen tarih aralığındaki verileri al
-                            # Başlangıç: start_date_utc (00:00)
-                            # Bitiş: end_date_utc'in 23:00'ı (23:00 dahil)
+                            # Sadece istenen tarih aralığındaki dataleri al
+                            # Start: start_date_utc (00:00)
+                            # End: end_date_utc'in 23:00'ı (23:00 dahil)
                             start_filter = start_date_utc.replace(hour=0, minute=0, second=0, microsecond=0)
                             end_filter = end_date_utc.replace(hour=23, minute=0, second=0, microsecond=0)
                             
@@ -152,7 +153,7 @@ class WeatherDataFetcher:
                                     'temperature_2m': float(temp)
                                 })
                     
-                    logger.info(f"✓ {city_name}: {len(all_data)} saatlik kayıt")
+                    logger.info(f"✓ {city_name}: {len(all_data)} hourly rows")
                 else:
                     logger.warning(f"⚠ {city_name}: Veri yok")
             else:
@@ -171,7 +172,7 @@ class WeatherDataFetcher:
     
     def fetch_all_cities(self, start_date: datetime, end_date: datetime, show_progress: bool = True) -> dict:
         """
-        Tüm şehirler için sıcaklık verisini çek
+        All şehirler için temperature datasini fetch
         
         Returns:
             Dict: {city_name: DataFrame} - Her DataFrame UTC timezone'da
@@ -179,7 +180,7 @@ class WeatherDataFetcher:
         all_city_data = {}
         
         if show_progress:
-            print(f"\n🌡️ {len(self.CITIES)} şehir için sıcaklık verisi çekiliyor...\n")
+            print(f"\n🌡️ {len(self.CITIES)} şehir için temperature datasi fetchiliyor...\n")
         
         for idx, city_name in enumerate(self.CITIES.keys(), 1):
             if show_progress:
@@ -190,7 +191,7 @@ class WeatherDataFetcher:
             if not city_data.empty:
                 all_city_data[city_name] = city_data
                 if show_progress:
-                    print(f"✓ {len(city_data)} kayıt")
+                    print(f"✓ {len(city_data)} rows")
             else:
                 if show_progress:
                     print("⚠ Veri yok")
@@ -204,10 +205,10 @@ class WeatherDataFetcher:
     
     def calculate_weighted_average_temperature(self, city_data_dict: dict) -> pd.DataFrame:
         """
-        Nüfusa göre ağırlıklı ortalama sıcaklık hesapla
+        Nüfusa göre weighted ortalama temperature calculate
         
         Args:
-            city_data_dict: {city_name: DataFrame} formatında şehir verileri (UTC timezone)
+            city_data_dict: {city_name: DataFrame} formatında şehir dataleri (UTC timezone)
         
         Returns:
             DataFrame with columns: datetime, temperature_2m (weighted average, UTC timezone)
@@ -215,7 +216,7 @@ class WeatherDataFetcher:
         if not city_data_dict:
             return pd.DataFrame(columns=['datetime', 'temperature_2m'])
         
-        # Tüm şehirlerin datetime'larını birleştir ve UTC'ye normalize et
+        # All şehirlerin datetime'larını merge ve UTC'ye normalize et
         normalized_city_data = {}
         all_datetimes = set()
         
@@ -237,11 +238,11 @@ class WeatherDataFetcher:
             all_datetimes.update(df_normalized['datetime'].values)
         
         if not all_datetimes:
-            logger.warning("Hiç datetime bulunamadı")
+            logger.warning("Hiç datetime not found")
             return pd.DataFrame(columns=['datetime', 'temperature_2m'])
         
-        # Tüm datetime'ları birleştir ve merge ile birleştir
-        # Önce tüm şehir verilerini birleştir
+        # All datetime'ları merge ve merge ile merge
+        # Önce tüm şehir datalerini merge
         merged_df = None
         
         for city_name, df_normalized in normalized_city_data.items():
@@ -256,10 +257,10 @@ class WeatherDataFetcher:
                 merged_df = merged_df.join(df_copy, how='outer')
         
         if merged_df is None or merged_df.empty:
-            logger.warning("Birleştirilmiş DataFrame oluşturulamadı")
+            logger.warning("Birleştirilmiş DataFrame generateulamadı")
             return pd.DataFrame(columns=['datetime', 'temperature_2m'])
         
-        # Her satır için ağırlıklı ortalama hesapla
+        # Her satır için weighted ortalama calculate
         result_data = []
         
         for dt_utc, row in merged_df.iterrows():
@@ -283,7 +284,7 @@ class WeatherDataFetcher:
                 })
         
         if not result_data:
-            logger.warning(f"Ağırlıklı ortalama hesaplanamadı. {len(merged_df)} datetime için {len(normalized_city_data)} şehir verisi var.")
+            logger.warning(f"Ağırlıklı ortalama calculatenamadı. {len(merged_df)} datetime için {len(normalized_city_data)} şehir datasi var.")
             return pd.DataFrame(columns=['datetime', 'temperature_2m'])
         
         result_df = pd.DataFrame(result_data)
@@ -294,21 +295,21 @@ class WeatherDataFetcher:
         
         result_df = result_df.sort_values('datetime').reset_index(drop=True)
         
-        logger.info(f"Ağırlıklı ortalama hesaplandı: {len(result_df)} kayıt")
+        logger.info(f"Ağırlıklı ortalama calculatendı: {len(result_df)} rows")
         
         return result_df
     
     def resample_to_15min(self, df: pd.DataFrame, start_date: datetime = None, end_date: datetime = None) -> pd.DataFrame:
         """
-        Saatlik veriyi 15 dakikalığa indir (interpolasyon ile)
+        Hourslik datayi 15 dakikalığa indir (interpolation ile)
         
         Args:
-            df: Saatlik sıcaklık DataFrame'i (UTC timezone)
-            start_date: Başlangıç tarihi (opsiyonel, verilmezse çekilen verinin min'i kullanılır)
-            end_date: Bitiş tarihi (opsiyonel, verilmezse çekilen verinin max'ı kullanılır)
+            df: Hourslik temperature DataFrame'i (UTC timezone)
+            start_date: Start tarihi (opsiyonel, datalmezse fetchilen datanin min'i kullanılır)
+            end_date: End tarihi (opsiyonel, datalmezse fetchilen datanin max'ı kullanılır)
         
         Returns:
-            15 dakikalık çözünürlükte DataFrame (UTC timezone)
+            15 dakikalık resolutionte DataFrame (UTC timezone)
         """
         if df.empty:
             return pd.DataFrame(columns=['datetime', 'temperature_2m'])
@@ -325,9 +326,9 @@ class WeatherDataFetcher:
         
         df = df.set_index('datetime')
         
-        # Tarih aralığını belirle
+        # Date rangenı belirle
         if start_date is None or end_date is None:
-            # Çekilen verinin tarih aralığını kullan
+            # Çekilen datanin tarih aralığını kullan
             min_date = df.index.min()
             max_date = df.index.max()
             start_date = min_date.replace(minute=0, second=0, microsecond=0)
@@ -345,12 +346,12 @@ class WeatherDataFetcher:
             else:
                 end_date = pd.Timestamp(end_date).tz_convert('UTC')
             
-            # Başlangıç: İlk günün başlangıcı (00:00)
+            # Start: İlk günün başlangıcı (00:00)
             start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
-            # Bitiş: Son günün sonu (23:45)
+            # End: Son günün sonu (23:45)
             end_date = end_date.replace(hour=23, minute=45, second=0, microsecond=0)
         
-        # 15 dakikalık zaman ızgarası oluştur (UTC)
+        # 15 dakikalık zaman ızgarası generate (UTC)
         full_idx = pd.date_range(
             start=start_date,
             end=end_date,
@@ -358,7 +359,7 @@ class WeatherDataFetcher:
             tz='UTC'
         )
         
-        # Veriyi bu ızgaraya oturt ve interpolasyon yap
+        # Veriyi bu ızgaraya oturt ve interpolation yap
         df_resampled = df.reindex(full_idx)
         
         # temperature_2m sütunu var mı kontrol et
@@ -377,18 +378,18 @@ class WeatherDataFetcher:
     
     def calculate_daily_hdd_cdd(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Günlük HDD ve CDD değerlerini hesapla
+        Günlük HDD ve CDD değerlerini calculate
         
         HDD (Heating Degree Days):
-        - Günlük ortalama sıcaklık <= 15°C ise: HDD = 18°C - T_avg
-        - Günlük ortalama sıcaklık > 15°C ise: HDD = 0
+        - Günlük ortalama temperature <= 15°C ise: HDD = 18°C - T_avg
+        - Günlük ortalama temperature > 15°C ise: HDD = 0
         
         CDD (Cooling Degree Days):
-        - Günlük ortalama sıcaklık > 22°C ise: CDD = T_avg - 22°C
-        - Günlük ortalama sıcaklık <= 22°C ise: CDD = 0
+        - Günlük ortalama temperature > 22°C ise: CDD = T_avg - 22°C
+        - Günlük ortalama temperature <= 22°C ise: CDD = 0
         
         Args:
-            df: 15 dakikalık sıcaklık DataFrame'i (datetime, temperature_2m) - UTC timezone
+            df: 15 dakikalık temperature DataFrame'i (datetime, temperature_2m) - UTC timezone
         
         Returns:
             DataFrame with columns: datetime (daily, UTC), temperature_2m (daily avg), hdd, cdd
@@ -420,24 +421,24 @@ class WeatherDataFetcher:
         df_clean = df_clean.dropna(subset=['temperature_2m'])
         
         if df_clean.empty:
-            logger.warning("calculate_daily_hdd_cdd: Tüm sıcaklık değerleri NaN")
+            logger.warning("calculate_daily_hdd_cdd: All temperature değerleri NaN")
             return pd.DataFrame(columns=['datetime', 'temperature_2m', 'hdd', 'cdd'])
         
         # Index olarak datetime kullan
         df_clean = df_clean.set_index('datetime')
         
-        # Günlük ortalama sıcaklık hesapla
+        # Günlük ortalama temperature calculate
         try:
             daily_avg = df_clean['temperature_2m'].resample('D').mean()
         except Exception as e:
-            logger.error(f"calculate_daily_hdd_cdd: Resample hatası: {e}")
+            logger.error(f"calculate_daily_hdd_cdd: Resample error: {e}")
             return pd.DataFrame(columns=['datetime', 'temperature_2m', 'hdd', 'cdd'])
         
         if len(daily_avg) == 0:
-            logger.warning("calculate_daily_hdd_cdd: Günlük ortalama hesaplanamadı")
+            logger.warning("calculate_daily_hdd_cdd: Günlük ortalama calculatenamadı")
             return pd.DataFrame(columns=['datetime', 'temperature_2m', 'hdd', 'cdd'])
         
-        # HDD ve CDD hesapla
+        # HDD ve CDD calculate
         hdd = np.where(
             daily_avg <= self.HDD_THRESHOLD,
             self.HDD_BASE_TEMP - daily_avg,
@@ -450,7 +451,7 @@ class WeatherDataFetcher:
             0.0
         )
         
-        # DataFrame oluştur
+        # DataFrame generate
         result_df = pd.DataFrame({
             'datetime': daily_avg.index,
             'temperature_2m': daily_avg.values,
@@ -461,30 +462,30 @@ class WeatherDataFetcher:
         # datetime sütununu reset et (index'ten sütuna)
         result_df = result_df.reset_index(drop=True)
         
-        logger.info(f"calculate_daily_hdd_cdd: {len(result_df)} günlük kayıt hesaplandı")
+        logger.info(f"calculate_daily_hdd_cdd: {len(result_df)} daily rows calculatendı")
         
         return result_df
     
     def calculate_weighted_hdd_cdd(self, city_data_dict: dict) -> pd.DataFrame:
         """
-        Her şehir için günlük HDD/CDD hesapla, sonra nüfusa göre ağırlıklı ortalama al
+        Her şehir için daily HDD/CDD calculate, sonra populationa göre weighted ortalama al
         
         Args:
-            city_data_dict: {city_name: DataFrame} formatında şehir verileri (15 dakikalık, UTC)
+            city_data_dict: {city_name: DataFrame} formatında şehir dataleri (15 dakikalık, UTC)
         
         Returns:
             DataFrame with columns: datetime (daily, UTC), hdd (weighted), cdd (weighted)
         """
         if not city_data_dict:
-            logger.warning("calculate_weighted_hdd_cdd: Boş city_data_dict")
+            logger.warning("calculate_weighted_hdd_cdd: Empty city_data_dict")
             return pd.DataFrame(columns=['datetime', 'hdd', 'cdd'])
         
-        # Her şehir için günlük HDD/CDD hesapla
+        # Her şehir için daily HDD/CDD calculate
         city_daily_hdd_cdd = {}
         
         for city_name, df in city_data_dict.items():
             if df.empty:
-                logger.warning(f"{city_name}: Boş DataFrame, HDD/CDD hesaplanamıyor")
+                logger.warning(f"{city_name}: Empty DataFrame, HDD/CDD calculatenamıyor")
                 continue
             
             if 'temperature_2m' not in df.columns:
@@ -495,18 +496,18 @@ class WeatherDataFetcher:
                 daily_df = self.calculate_daily_hdd_cdd(df)
                 if not daily_df.empty and 'hdd' in daily_df.columns and 'cdd' in daily_df.columns:
                     city_daily_hdd_cdd[city_name] = daily_df
-                    logger.info(f"{city_name}: {len(daily_df)} günlük HDD/CDD hesaplandı")
+                    logger.info(f"{city_name}: {len(daily_df)} daily HDD/CDD calculatendı")
                 else:
-                    logger.warning(f"{city_name}: Günlük HDD/CDD DataFrame boş veya eksik sütunlar")
+                    logger.warning(f"{city_name}: Günlük HDD/CDD DataFrame boş veya missing sütunlar")
             except Exception as e:
-                logger.error(f"{city_name}: HDD/CDD hesaplama hatası: {e}")
+                logger.error(f"{city_name}: HDD/CDD calculatema error: {e}")
                 continue
         
         if not city_daily_hdd_cdd:
-            logger.error(f"Hiç şehir için HDD/CDD hesaplanamadı. {len(city_data_dict)} şehir verisi var.")
+            logger.error(f"Hiç şehir için HDD/CDD calculatenamadı. {len(city_data_dict)} şehir datasi var.")
             return pd.DataFrame(columns=['datetime', 'hdd', 'cdd'])
         
-        # Tüm günleri birleştir - merge kullanarak daha güvenilir
+        # All günleri merge - merge kullanarak daha güvenilir
         merged_df = None
         
         for city_name, daily_df in city_daily_hdd_cdd.items():
@@ -520,10 +521,10 @@ class WeatherDataFetcher:
                 merged_df = merged_df.join(df_copy, how='outer')
         
         if merged_df is None or merged_df.empty:
-            logger.error("Birleştirilmiş HDD/CDD DataFrame oluşturulamadı")
+            logger.error("Birleştirilmiş HDD/CDD DataFrame generateulamadı")
             return pd.DataFrame(columns=['datetime', 'hdd', 'cdd'])
         
-        # Her gün için ağırlıklı ortalama HDD/CDD hesapla
+        # Her gün için weighted ortalama HDD/CDD calculate
         weighted_results = []
         
         for dt, row in merged_df.iterrows():
@@ -553,13 +554,13 @@ class WeatherDataFetcher:
                 })
         
         if not weighted_results:
-            logger.error("Ağırlıklı HDD/CDD hesaplanamadı")
+            logger.error("Ağırlıklı HDD/CDD calculatenamadı")
             return pd.DataFrame(columns=['datetime', 'hdd', 'cdd'])
         
         result_df = pd.DataFrame(weighted_results)
         result_df = result_df.sort_values('datetime').reset_index(drop=True)
         
-        logger.info(f"calculate_weighted_hdd_cdd: {len(result_df)} günlük ağırlıklı HDD/CDD hesaplandı")
+        logger.info(f"calculate_weighted_hdd_cdd: {len(result_df)} daily weighted HDD/CDD calculatendı")
         
         return result_df
     
@@ -570,11 +571,11 @@ class WeatherDataFetcher:
         
         Args:
             daily_hdd_cdd_df: Günlük HDD/CDD DataFrame'i (UTC timezone)
-            start_date: Başlangıç tarihi
-            end_date: Bitiş tarihi
+            start_date: Start tarihi
+            end_date: End tarihi
         
         Returns:
-            15 dakikalık çözünürlükte DataFrame (datetime, hdd, cdd) - UTC timezone
+            15 dakikalık resolutionte DataFrame (datetime, hdd, cdd) - UTC timezone
         """
         if daily_hdd_cdd_df.empty:
             return pd.DataFrame(columns=['datetime', 'hdd', 'cdd'])
@@ -591,12 +592,12 @@ class WeatherDataFetcher:
         else:
             end_date_utc = pd.Timestamp(end_date).tz_convert('UTC')
         
-        # Başlangıç: İlk günün başlangıcı (00:00)
+        # Start: İlk günün başlangıcı (00:00)
         start_date_utc = start_date_utc.replace(hour=0, minute=0, second=0, microsecond=0)
-        # Bitiş: Son günün sonu (23:45)
+        # End: Son günün sonu (23:45)
         end_date_utc = end_date_utc.replace(hour=23, minute=45, second=0, microsecond=0)
         
-        # 15 dakikalık zaman ızgarası oluştur
+        # 15 dakikalık zaman ızgarası generate
         full_idx = pd.date_range(
             start=start_date_utc,
             end=end_date_utc,
@@ -604,7 +605,7 @@ class WeatherDataFetcher:
             tz='UTC'
         )
         
-        # Günlük veriyi datetime index'e çevir ve UTC'ye normalize et
+        # Günlük datayi datetime index'e çevir ve UTC'ye normalize et
         daily_hdd_cdd_df = daily_hdd_cdd_df.copy()
         daily_hdd_cdd_df['datetime'] = pd.to_datetime(daily_hdd_cdd_df['datetime'])
         
@@ -619,7 +620,7 @@ class WeatherDataFetcher:
         # Her gün için HDD/CDD değerlerini 15 dakikalık aralıklara genişlet
         result_data = []
         
-        # Günlük veriyi date ile eşleştirmek için dict oluştur
+        # Günlük datayi date ile eşleştirmek için dict generate
         daily_dict = {}
         for idx, row in daily_hdd_cdd_df.iterrows():
             # Index'i date'e çevir (timezone bilgisini kaldır, sadece tarih)
@@ -633,7 +634,7 @@ class WeatherDataFetcher:
             # Bu datetime'ın ait olduğu günü bul
             day_date = dt.date()
             
-            # Günlük veriden bu günün HDD/CDD değerlerini al
+            # Günlük dataden bu günün HDD/CDD değerlerini al
             if day_date in daily_dict:
                 hdd = daily_dict[day_date]['hdd']
                 cdd = daily_dict[day_date]['cdd']
@@ -654,69 +655,69 @@ class WeatherDataFetcher:
     
     def fetch_and_process_temperature(self, start_date: datetime, end_date: datetime, show_progress: bool = True) -> pd.DataFrame:
         """
-        Sadece sıcaklık verisini çek ve işle: Veri çek, ağırlıklı ortalama hesapla, 15 dakikalığa indir
+        Sadece temperature datasini fetch ve işle: Veri fetch, weighted ortalama calculate, 15 dakikalığa indir
         
         Args:
-            start_date: Başlangıç tarihi
-            end_date: Bitiş tarihi
+            start_date: Start tarihi
+            end_date: End tarihi
             show_progress: İlerleme mesajlarını göster
         
         Returns:
-            (temperature_df, city_data) - 15 dakikalık çözünürlükte ağırlıklı ortalama sıcaklık ve şehir verileri (HDD/CDD için kullanılabilir)
+            (temperature_df, city_data) - 15 dakikalık resolutionte weighted ortalama temperature ve şehir dataleri (HDD/CDD için kullanılabilir)
         """
-        # 1. Tüm şehirler için sıcaklık verisini çek
+        # 1. All şehirler için temperature datasini fetch
         city_data = self.fetch_all_cities(start_date, end_date, show_progress)
         
         if not city_data:
-            logger.warning("Hiç şehir verisi çekilemedi")
+            logger.warning("Hiç şehir datasi fetchilemedi")
             return pd.DataFrame(columns=['datetime', 'temperature_2m']), {}
         
-        # 2. Nüfusa göre ağırlıklı ortalama sıcaklık hesapla (saatlik)
+        # 2. Nüfusa göre weighted ortalama temperature calculate (hourly)
         if show_progress:
-            print("\n📊 Nüfusa göre ağırlıklı ortalama sıcaklık hesaplanıyor...")
+            print("\n📊 Nüfusa göre weighted ortalama temperature calculatenıyor...")
         
         weighted_temp_hourly = self.calculate_weighted_average_temperature(city_data)
         
         if weighted_temp_hourly.empty:
-            logger.warning("Ağırlıklı ortalama sıcaklık hesaplanamadı")
+            logger.warning("Ağırlıklı ortalama temperature calculatenamadı")
             return pd.DataFrame(columns=['datetime', 'temperature_2m']), city_data
         
-        # 3. Saatlik veriyi 15 dakikalığa indir (kullanıcının belirttiği tarih aralığını kullan)
+        # 3. Hourslik datayi 15 dakikalığa indir (kullanıcının belirttiği tarih aralığını kullan)
         if show_progress:
-            print("🔄 Saatlik veri 15 dakikalığa indiriliyor...")
+            print("🔄 Hourslik data 15 dakikalığa indiriliyor...")
         
         weighted_temp_15min = self.resample_to_15min(weighted_temp_hourly, start_date, end_date)
         
         if show_progress:
-            print(f"\n✅ Sıcaklık verisi işlendi!")
-            print(f"   Toplam kayıt sayısı: {len(weighted_temp_15min):,}\n")
+            print(f"\n✅ Sıcaklık datasi işlendi!")
+            print(f"   Toplam rows sayısı: {len(weighted_temp_15min):,}\n")
         
         return weighted_temp_15min, city_data
     
     def fetch_and_process_hdd_cdd(self, start_date: datetime, end_date: datetime, city_data: dict = None, show_progress: bool = True) -> pd.DataFrame:
         """
-        Sadece HDD/CDD verisini çek ve işle: Veri çek, günlük HDD/CDD hesapla, 15 dakikalığa genişlet
+        Sadece HDD/CDD datasini fetch ve işle: Veri fetch, daily HDD/CDD calculate, 15 dakikalığa genişlet
         
         Args:
-            start_date: Başlangıç tarihi
-            end_date: Bitiş tarihi
-            city_data: Opsiyonel - Eğer verilirse, bu veriyi kullanır (tekrar çekmez)
+            start_date: Start tarihi
+            end_date: End tarihi
+            city_data: Opsiyonel - Eğer datalirse, bu datayi kullanır (tekrar fetchmez)
             show_progress: İlerleme mesajlarını göster
         
         Returns:
-            hdd_cdd_df - 15 dakikalık çözünürlükte HDD/CDD (günlük sabit değerler, UTC timezone)
+            hdd_cdd_df - 15 dakikalık resolutionte HDD/CDD (daily sabit değerler, UTC timezone)
         """
-        # 1. Eğer city_data verilmemişse, tüm şehirler için sıcaklık verisini çek
+        # 1. Eğer city_data datalmemişse, tüm şehirler için temperature datasini fetch
         if city_data is None:
             city_data = self.fetch_all_cities(start_date, end_date, show_progress)
         
         if not city_data:
-            logger.warning("Hiç şehir verisi çekilemedi")
+            logger.warning("Hiç şehir datasi fetchilemedi")
             return pd.DataFrame(columns=['datetime', 'hdd', 'cdd'])
         
-        # 2. Her şehir için saatlik veriyi 15 dakikalığa indir
+        # 2. Her şehir için hourly datayi 15 dakikalığa indir
         if show_progress:
-            print("\n🔄 Şehir verileri 15 dakikalığa indiriliyor...")
+            print("\n🔄 City dataleri 15 dakikalığa indiriliyor...")
         
         city_data_15min = {}
         for city_name, hourly_df in city_data.items():
@@ -724,20 +725,20 @@ class WeatherDataFetcher:
             if not resampled_df.empty:
                 city_data_15min[city_name] = resampled_df
             else:
-                logger.warning(f"{city_name}: 15 dakikalık veri boş")
+                logger.warning(f"{city_name}: 15 dakikalık data boş")
         
         if not city_data_15min:
-            logger.warning("Hiç şehir için 15 dakikalık veri oluşturulamadı")
+            logger.warning("Hiç şehir için 15 dakikalık data generateulamadı")
             return pd.DataFrame(columns=['datetime', 'hdd', 'cdd'])
         
-        # 3. Her şehir için günlük HDD/CDD hesapla ve ağırlıklı ortalama al
+        # 3. Her şehir için daily HDD/CDD calculate ve weighted ortalama al
         if show_progress:
-            print("🌡️ Günlük HDD/CDD değerleri hesaplanıyor...")
+            print("🌡️ Günlük HDD/CDD değerleri calculatenıyor...")
         
         daily_hdd_cdd = self.calculate_weighted_hdd_cdd(city_data_15min)
         
         if daily_hdd_cdd.empty:
-            logger.warning("HDD/CDD değerleri hesaplanamadı")
+            logger.warning("HDD/CDD değerleri calculatenamadı")
             return pd.DataFrame(columns=['datetime', 'hdd', 'cdd'])
         
         # 4. Günlük HDD/CDD'yi 15 dakikalığa genişlet
@@ -747,16 +748,16 @@ class WeatherDataFetcher:
         hdd_cdd_15min = self.expand_daily_hdd_cdd_to_15min(daily_hdd_cdd, start_date, end_date)
         
         if show_progress:
-            print(f"\n✅ HDD/CDD verisi işlendi!")
-            print(f"   Toplam kayıt sayısı: {len(hdd_cdd_15min):,}\n")
+            print(f"\n✅ HDD/CDD datasi işlendi!")
+            print(f"   Toplam rows sayısı: {len(hdd_cdd_15min):,}\n")
         
         return hdd_cdd_15min
     
     def save_csv(self, df: pd.DataFrame, filepath: str):
-        """CSV'ye kaydet"""
+        """CSV'ye save"""
         Path(filepath).parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(filepath, index=False)
-        logger.info(f"✅ Veri kaydedildi: {filepath}")
+        logger.info(f"✅ Veri saved: {filepath}")
 
 
 if __name__ == "__main__":
@@ -765,11 +766,11 @@ if __name__ == "__main__":
     start = datetime(2015, 1, 1)
     end = datetime(2024, 12, 31)
     
-    # Sıcaklık verisini çek ve işle
+    # Sıcaklık datasini fetch ve işle
     temp_df = fetcher.fetch_and_process_temperature(start, end)
     fetcher.save_csv(temp_df, "data/raw/hungary_temperature_2015_2024.csv")
     
-    # HDD/CDD verisini çek ve işle
+    # HDD/CDD datasini fetch ve işle
     hdd_cdd_df = fetcher.fetch_and_process_hdd_cdd(start, end)
     fetcher.save_csv(hdd_cdd_df, "data/raw/hungary_hdd_cdd_2015_2024.csv")
 
